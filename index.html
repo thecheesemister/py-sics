@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>2D Physics Engine Simulation</title>
+    <!-- Load Brython and its standard library -->
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/brython/3.9.5/brython.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/brython/3.9.5/brython_stdlib.js"></script>
+    <style>
+      body { font-family: sans-serif; }
+      #output {
+          white-space: pre;
+          background: #f0f0f0;
+          padding: 10px;
+          border: 1px solid #ccc;
+          max-height: 600px;
+          overflow-y: auto;
+      }
+    </style>
+</head>
+<body onload="brython()">
+    <h1>2D Physics Engine Simulation</h1>
+    <div id="output"></div>
+    
+    <script type="text/python">
+import math
+from browser import document, timer
+
+# --- Vector2D: Basic 2D vector operations ---
+class Vector2D:
+    def __init__(self, x=0.0, y=0.0):
+        self.x = x
+        self.y = y
+
+    def __add__(self, other):
+        return Vector2D(self.x + other.x, self.y + other.y)
+    
+    def __sub__(self, other):
+        return Vector2D(self.x - other.x, self.y - other.y)
+    
+    def __mul__(self, scalar):
+        return Vector2D(self.x * scalar, self.y * scalar)
+    
+    def __rmul__(self, scalar):
+        return self.__mul__(scalar)
+    
+    def __truediv__(self, scalar):
+        return Vector2D(self.x / scalar, self.y / scalar)
+    
+    def magnitude(self):
+        return math.sqrt(self.x**2 + self.y**2)
+    
+    def normalized(self):
+        mag = self.magnitude()
+        if mag == 0:
+            return Vector2D(0, 0)
+        return self / mag
+
+    def dot(self, other):
+        return self.x * other.x + self.y * other.y
+
+    def __repr__(self):
+        return f"Vector2D({self.x:.2f}, {self.y:.2f})"
+
+# --- RigidBody: Represents an object in our physics simulation ---
+class RigidBody:
+    def __init__(self, position, mass, velocity=None, acceleration=None):
+        self.position = position
+        self.mass = mass
+        self.inv_mass = 1.0 / mass if mass != 0 else 0  # Zero mass means static body
+        self.velocity = velocity if velocity is not None else Vector2D()
+        self.acceleration = acceleration if acceleration is not None else Vector2D()
+
+    def apply_force(self, force):
+        self.acceleration += force * self.inv_mass
+
+    def __repr__(self):
+        return f"RigidBody(pos={self.position}, vel={self.velocity})"
+
+# --- CircleBody: A simple circle object with a radius for collision detection ---
+class CircleBody(RigidBody):
+    def __init__(self, position, mass, radius, velocity=None, acceleration=None):
+        super().__init__(position, mass, velocity, acceleration)
+        self.radius = radius
+
+    def __repr__(self):
+        return f"CircleBody(pos={self.position}, vel={self.velocity}, r={self.radius})"
+
+# --- Collision Detection and Resolution ---
+def detect_collision(body1, body2):
+    if isinstance(body1, CircleBody) and isinstance(body2, CircleBody):
+        distance = (body1.position - body2.position).magnitude()
+        return distance < (body1.radius + body2.radius)
+    return False
+
+def resolve_collision(body1, body2):
+    normal = body2.position - body1.position
+    distance = normal.magnitude()
+    if distance == 0:
+        normal = Vector2D(1, 0)
+        distance = 1
+    else:
+        normal = normal / distance
+
+    relative_velocity = body2.velocity - body1.velocity
+    vel_along_normal = relative_velocity.dot(normal)
+
+    if vel_along_normal > 0:
+        return
+
+    restitution = 1.0  # perfectly elastic collision
+    j = -(1 + restitution) * vel_along_normal
+    j /= body1.inv_mass + body2.inv_mass
+    impulse = normal * j
+    body1.velocity -= impulse * body1.inv_mass
+    body2.velocity += impulse * body2.inv_mass
+
+    # Positional correction
+    percent = 0.2  
+    slop = 0.01    
+    penetration = (body1.radius + body2.radius) - distance
+    correction = normal * (max(penetration - slop, 0) / (body1.inv_mass + body2.inv_mass) * percent)
+    body1.position -= correction * body1.inv_mass
+    body2.position += correction * body2.inv_mass
+
+# --- PhysicsEngine: Updates all bodies and handles collisions ---
+class PhysicsEngine:
+    def __init__(self, gravity=Vector2D(0, 9.81)):
+        self.bodies = []
+        self.gravity = gravity
+
+    def add_body(self, body):
+        self.bodies.append(body)
+
+    def step(self, dt):
+        for body in self.bodies:
+            if body.mass != 0:
+                body.apply_force(self.gravity * body.mass)
+                body.velocity += body.acceleration * dt
+                body.position += body.velocity * dt
+                body.acceleration = Vector2D()
+
+        for i in range(len(self.bodies)):
+            for j in range(i + 1, len(self.bodies)):
+                if detect_collision(self.bodies[i], self.bodies[j]):
+                    resolve_collision(self.bodies[i], self.bodies[j])
+
+# --- Simulation Setup ---
+engine = PhysicsEngine(gravity=Vector2D(0, 9.81))
+body1 = CircleBody(position=Vector2D(50, 50), mass=1, radius=10, velocity=Vector2D(10, 0))
+body2 = CircleBody(position=Vector2D(100, 50), mass=1, radius=10, velocity=Vector2D(-10, 0))
+engine.add_body(body1)
+engine.add_body(body2)
+
+output = document["output"]
+
+step_count = 0
+def simulation_step():
+    global step_count
+    dt = 0.016  # ~60 FPS
+    engine.step(dt)
+    output.text += f"Step {step_count}:\\n"
+    output.text += f"  Body1: Position {body1.position}, Velocity {body1.velocity}\\n"
+    output.text += f"  Body2: Position {body2.position}, Velocity {body2.velocity}\\n\\n"
+    step_count += 1
+    if step_count < 300:
+        timer.set_timeout(simulation_step, int(dt*1000))
+
+# Start the simulation loop
+simulation_step()
+    </script>
+</body>
+</html>
