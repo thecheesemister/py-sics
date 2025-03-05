@@ -8,19 +8,12 @@
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/brython/3.9.5/brython_stdlib.js"></script>
     <style>
       body { font-family: sans-serif; }
-      #output {
-          white-space: pre;
-          background: #000000;
-          padding: 10px;
-          border: 1px solid #ccc;
-          max-height: 600px;
-          overflow-y: auto;
-      }
+      canvas { border: 1px solid #ccc; background: #f0f0f0; }
     </style>
 </head>
 <body onload="brython()">
     <h1>2D Physics Engine Simulation</h1>
-    <div id="output"></div>
+    <canvas id="canvas" width="800" height="600"></canvas>
     
     <script type="text/python">
 import math
@@ -67,7 +60,7 @@ class RigidBody:
     def __init__(self, position, mass, velocity=None, acceleration=None):
         self.position = position
         self.mass = mass
-        self.inv_mass = 1.0 / mass if mass != 0 else 0  # Zero mass means static body
+        self.inv_mass = 1.0 / mass if mass != 0 else 0  # Zero mass means static
         self.velocity = velocity if velocity is not None else Vector2D()
         self.acceleration = acceleration if acceleration is not None else Vector2D()
 
@@ -104,7 +97,6 @@ def resolve_collision(body1, body2):
 
     relative_velocity = body2.velocity - body1.velocity
     vel_along_normal = relative_velocity.dot(normal)
-
     if vel_along_normal > 0:
         return
 
@@ -115,7 +107,7 @@ def resolve_collision(body1, body2):
     body1.velocity -= impulse * body1.inv_mass
     body2.velocity += impulse * body2.inv_mass
 
-    # Positional correction
+    # Positional correction to avoid sinking due to numerical issues
     percent = 0.2  
     slop = 0.01    
     penetration = (body1.radius + body2.radius) - distance
@@ -133,6 +125,7 @@ class PhysicsEngine:
         self.bodies.append(body)
 
     def step(self, dt):
+        # Update bodies with Euler integration
         for body in self.bodies:
             if body.mass != 0:
                 body.apply_force(self.gravity * body.mass)
@@ -140,6 +133,7 @@ class PhysicsEngine:
                 body.position += body.velocity * dt
                 body.acceleration = Vector2D()
 
+        # Check for collisions
         for i in range(len(self.bodies)):
             for j in range(i + 1, len(self.bodies)):
                 if detect_collision(self.bodies[i], self.bodies[j]):
@@ -147,24 +141,34 @@ class PhysicsEngine:
 
 # --- Simulation Setup ---
 engine = PhysicsEngine(gravity=Vector2D(0, 9.81))
-body1 = CircleBody(position=Vector2D(50, 50), mass=1, radius=10, velocity=Vector2D(10, 0))
-body2 = CircleBody(position=Vector2D(100, 50), mass=1, radius=10, velocity=Vector2D(-10, 0))
+
+# Create two circle bodies moving toward each other
+body1 = CircleBody(position=Vector2D(100, 300), mass=1, radius=20, velocity=Vector2D(50, 0))
+body2 = CircleBody(position=Vector2D(700, 300), mass=1, radius=20, velocity=Vector2D(-50, 0))
 engine.add_body(body1)
 engine.add_body(body2)
 
-output = document["output"]
+# Set up canvas for drawing
+canvas = document["canvas"]
+ctx = canvas.getContext("2d")
 
-step_count = 0
+def draw_scene():
+    # Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    # Draw each body as a circle
+    for body in engine.bodies:
+        ctx.beginPath()
+        ctx.arc(body.position.x, body.position.y, body.radius, 0, 2 * math.pi)
+        ctx.fillStyle = "blue"
+        ctx.fill()
+        ctx.strokeStyle = "black"
+        ctx.stroke()
+
 def simulation_step():
-    global step_count
     dt = 0.016  # ~60 FPS
     engine.step(dt)
-    output.text += f"Step {step_count}:\\n"
-    output.text += f"  Body1: Position {body1.position}, Velocity {body1.velocity}\\n"
-    output.text += f"  Body2: Position {body2.position}, Velocity {body2.velocity}\\n\\n"
-    step_count += 1
-    if step_count < 300:
-        timer.set_timeout(simulation_step, int(dt*1000))
+    draw_scene()
+    timer.set_timeout(simulation_step, int(dt * 1000))
 
 # Start the simulation loop
 simulation_step()
